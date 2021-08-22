@@ -13,7 +13,8 @@ from model import SSD
 from multiboxloss import MultiBoxLoss
 import torch.optim as optim
 import time
- 
+import pandas as pd
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print("device", device)
 torch.backends.cudnn.benchmark= True
@@ -101,4 +102,40 @@ def train_model(net, dataloader_dict, criterion, optimizer, num_epochs ):
                 optimizer.zero_grad()
 
                 # foward 
+                with torch.set_grad_enabled(phase="train"):
+                    outputs= net(images)
+                    loss_l, loss_c = criterion(outputs, targets)
+                    loss = loss_l + loss_c
+
+                    if phase == "train":
+                        loss.backward() # calculate gradient
+                        nn.utils.clip_grad_value_(net.parameters(), clip_value=2.0)
+                        optimizer.step() # update parameters
+
+                        if (iteration % 10) == 0:
+                            t_iter_end = time.time()
+                            duration = t_iter_end - t_iter_start
+                            print("Iteration {} || Loss: {:.4f} || 10iter: {:.4f} sec".format(iteration, loss.item(), duration))
+                            t_iter_start = time.time()
+                        epoch_train_loss += loss.item()
+                        iteration += 1
+                    else:
+                        epoch_val_loss += loss.item()
+        t_epoch_end = time.time()
+        print("---"*20)
+        print("Epoch {} || epoch_train_loss: {:.4f} || Epoch_val_loss: {:.4f}".format(epoch+1, epoch_train_loss, epoch_val_loss))           
+        print("Duration: {:.4f} sec".format(t_epoch_end - t_epoch_start))
+        t_epoch_start = time.time()
+
+        log_epoch = {"epoch": epoch+1, "train_loss": epoch_train_loss, "val_loss": epoch_val_loss}
+        logs.append(log_epoch)
+        df = pd.DataFrame(logs)
+        df.to_csv("./data/ssd_logs.csv")
+        epoch_train_loss = 0.0
+        epoch_val_loss = 0.0
+        if ((epoch+1) % 10 == 0):
+            torch.save(net.state_dict(), "./data/weights/ssd300_" + str(epoch+1) + ".pth")
+
+num_epochs = 100
+train_model(net, dataloader_dict, criterion, optimizer, num_epochs=num_epochs)
                 
